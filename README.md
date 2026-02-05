@@ -26,7 +26,33 @@ Transform one resume into multiple tailored versions - each optimized for specif
 
 ## 🚀 Quick Start (5 minutes)
 
-### Step 1: Clone & Setup
+Choose your preferred method:
+
+### Option A: Docker (Recommended ⭐) - No local installation needed
+
+```bash
+# Clone repository
+git clone <your-repo-url>
+cd resume-tailor
+
+# Set up API key
+echo "GROQ_API_KEY=your_key_here" > .env
+
+# Build Docker image (one-time)
+./docker-run.sh build
+
+# Run full workflow
+./docker-run.sh full your_resume.pdf "https://jobs.lever.co/company/job-id"
+
+# Or step by step:
+./docker-run.sh parse your_resume.pdf
+./docker-run.sh scrape "https://jobs.lever.co/company/job-id"
+./docker-run.sh tailor
+./docker-run.sh compile
+```
+
+### Option B: Local Installation
+
 ```bash
 git clone <your-repo-url>
 cd resume-tailor
@@ -40,6 +66,10 @@ pip install -r requirements.txt
 
 # Install Playwright browser
 python3 -m playwright install chromium
+
+# Optional: Install texlive for PDF compilation
+# sudo pacman -S texlive-most  # Arch Linux
+# sudo apt-get install texlive-full  # Ubuntu/Debian
 ```
 
 ### Step 2: Get API Key
@@ -101,6 +131,62 @@ python3 tailor_resume_latex.py \
 # ├── Mun_Albaraili_Data_Engineer_Company2.pdf
 # ├── Mun_Albaraili_Data_Scientist_Company3.pdf
 # └── tailoring_summary.json
+```
+
+---
+
+## 🐳 Docker Usage (Easiest Method)
+
+Docker setup includes everything: Python, LaTeX compiler, Playwright, and all dependencies.
+
+### One-Time Setup
+```bash
+# Build the Docker image
+./docker-run.sh build
+```
+
+### Full Workflow (One Command)
+```bash
+# Parse + Scrape + Tailor + Compile PDF (everything in Docker)
+./docker-run.sh full your_resume.pdf "https://jobs.lever.co/company/job-id"
+```
+
+### Step-by-Step with Docker
+```bash
+# Step 1: Parse resume
+./docker-run.sh parse your_resume.pdf
+
+# Step 2: Scrape job(s)
+./docker-run.sh scrape "https://jobs.lever.co/company/job-id"
+
+# Step 3: Generate tailored LaTeX
+./docker-run.sh tailor
+
+# Step 4: Compile to PDF
+./docker-run.sh compile
+```
+
+### Docker Commands Reference
+```bash
+./docker-run.sh build                    # Build Docker image
+./docker-run.sh parse <file>            # Parse PDF/DOCX
+./docker-run.sh scrape <url> [url...]   # Scrape job URLs
+./docker-run.sh tailor [resume] [jobs] [output]  # Generate tailored resumes
+./docker-run.sh compile [file]          # Compile LaTeX to PDF
+./docker-run.sh full <resume> <urls...> # Run complete workflow
+./docker-run.sh interactive             # Open interactive shell
+./docker-run.sh help                    # Show all commands
+```
+
+### Manual Docker Usage
+```bash
+# Using docker-compose directly
+docker-compose run --rm tailor python3 parse_resume.py your_resume.pdf
+docker-compose run --rm tailor python3 scrape_jobs_v2.py "job-url"
+docker-compose run --rm tailor python3 tailor_resume_latex.py resume.json jobs.json
+
+# Compile PDF with Docker LaTeX
+docker-compose run --rm latex -interaction=nonstopmode resume.tex
 ```
 
 ---

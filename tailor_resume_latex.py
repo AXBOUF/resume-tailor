@@ -281,17 +281,84 @@ IMPORTANT:
         """Generate LaTeX from structured data"""
         return self.latex_gen.generate_full_resume(structured_data)
     
-    def compile_pdf(self, tex_file: str, output_dir: str) -> bool:
-        """Compile LaTeX to PDF"""
+    def compile_pdf(self, tex_file: str, output_dir: str, use_docker: bool = True) -> bool:
+        """Compile LaTeX to PDF using Docker or local pdflatex"""
+        
+        # Try Docker first if enabled
+        if use_docker and self._docker_available():
+            return self._compile_with_docker(tex_file, output_dir)
+        
+        # Fall back to local pdflatex
+        return self._compile_with_pdflatex(tex_file, output_dir)
+    
+    def _docker_available(self) -> bool:
+        """Check if Docker is available"""
+        try:
+            result = subprocess.run(
+                ['docker', '--version'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            return result.returncode == 0
+        except:
+            return False
+    
+    def _compile_with_docker(self, tex_file: str, output_dir: str) -> bool:
+        """Compile LaTeX using Docker"""
+        try:
+            basename = os.path.basename(tex_file)
+            
+            print(f"   🐳 Using Docker for PDF compilation...")
+            
+            # Run pdflatex twice in Docker
+            for i in range(2):
+                result = subprocess.run(
+                    [
+                        'docker', 'run', '--rm',
+                        '-v', f'{os.path.abspath(output_dir)}:/workdir',
+                        '-w', '/workdir',
+                        'texlive/texlive:latest',
+                        'pdflatex',
+                        '-interaction=nonstopmode',
+                        basename
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=120
+                )
+                
+                if result.returncode != 0 and i == 1:  # Only show error on second run
+                    # Check if PDF was still created (warnings are OK)
+                    pass
+            
+            # Check if PDF was created
+            pdf_file = tex_file.replace('.tex', '.pdf')
+            success = os.path.exists(pdf_file)
+            
+            if success:
+                print(f"   ✅ PDF compiled successfully with Docker")
+            
+            return success
+            
+        except Exception as e:
+            print(f"   ⚠️  Docker compilation failed: {e}")
+            print(f"   📝 Falling back to local pdflatex...")
+            return self._compile_with_pdflatex(tex_file, output_dir)
+    
+    def _compile_with_pdflatex(self, tex_file: str, output_dir: str) -> bool:
+        """Compile LaTeX using local pdflatex"""
         try:
             # Change to output directory
             original_dir = os.getcwd()
             os.chdir(output_dir)
             
+            tex_basename = os.path.basename(tex_file)
+            
             # Run pdflatex twice for references
             for _ in range(2):
                 result = subprocess.run(
-                    ['pdflatex', '-interaction=nonstopmode', tex_file],
+                    ['pdflatex', '-interaction=nonstopmode', tex_basename],
                     capture_output=True,
                     text=True,
                     timeout=60
@@ -301,10 +368,19 @@ IMPORTANT:
             
             # Check if PDF was created
             pdf_file = tex_file.replace('.tex', '.pdf')
-            return os.path.exists(os.path.join(output_dir, pdf_file))
+            success = os.path.exists(pdf_file)
+            
+            if success:
+                print(f"   ✅ PDF compiled successfully with local pdflatex")
+            
+            return success
             
         except FileNotFoundError:
-            print("   ⚠️  pdflatex not found. Install texlive or use Overleaf.")
+            print("   ⚠️  pdflatex not found locally and Docker failed/unavailable")
+            print("   💡 Options:")
+            print("      1. Install texlive: sudo pacman -S texlive-most")
+            print("      2. Use Docker: ./docker-run.sh compile")
+            print("      3. Upload .tex to Overleaf: https://www.overleaf.com")
             return False
         except Exception as e:
             print(f"   ⚠️  PDF compilation failed: {e}")
@@ -328,24 +404,43 @@ def generate_filename(contact_name: str, job_title: str, company: str) -> str:
 
 def main():
     """Main function"""
-    if len(sys.argv) < 3:
-        print("Resume Tailor - LaTeX Edition")
-        print("Generates Jake's Resume formatted PDFs")
-        print("\nUsage:")
-        print("  python3 tailor_resume_latex.py <resume_json> <jobs_json> [output_dir]")
-        print("\nExamples:")
-        print("  python3 tailor_resume_latex.py resume.json jobs.json")
-        print("  python3 tailor_resume_latex.py resume.json jobs.json ./my_resumes")
-        print("\nPrerequisites:")
-        print("  1. Run parse_resume.py to create resume JSON")
-        print("  2. Run scrape_jobs_v2.py to create jobs JSON")
-        print("  3. Set GROQ_API_KEY in .env file")
-        print("  4. Optional: Install texlive for local PDF compilation")
-        sys.exit(1)
+    import argparse
     
-    resume_file = sys.argv[1]
-    jobs_file = sys.argv[2]
-    output_dir = sys.argv[3] if len(sys.argv) > 3 else './output'
+    parser = argparse.ArgumentParser(
+        description='Generate tailored resumes using Jake\'s Resume LaTeX format',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python3 tailor_resume_latex.py resume.json jobs.json
+  python3 tailor_resume_latex.py resume.json jobs.json ./my_output --no-docker
+  python3 tailor_resume_latex.py resume.json jobs.json --skip-pdf
+
+Prerequisites:
+  1. Run parse_resume.py to create resume JSON
+  2. Run scrape_jobs_v2.py to create jobs JSON  
+  3. Set GROQ_API_KEY in .env file
+  4. For PDF: Install texlive OR use Docker OR upload to Overleaf
+        """
+    )
+    
+    parser.add_argument('resume_json', help='Path to parsed resume JSON file')
+    parser.add_argument('jobs_json', help='Path to jobs JSON file')
+    parser.add_argument('output_dir', nargs='?', default='./output', 
+                       help='Output directory (default: ./output)')
+    parser.add_argument('--no-docker', action='store_true',
+                       help='Disable Docker, use local pdflatex only')
+    parser.add_argument('--skip-pdf', action='store_true',
+                       help='Generate .tex files only, skip PDF compilation')
+    parser.add_argument('--docker-image', default='texlive/texlive:latest',
+                       help='Docker image for LaTeX compilation (default: texlive/texlive:latest)')
+    
+    args = parser.parse_args()
+    
+    resume_file = args.resume_json
+    jobs_file = args.jobs_json
+    output_dir = args.output_dir
+    use_docker = not args.no_docker
+    skip_pdf = args.skip_pdf
     
     # Check API key
     if not GROQ_API_KEY or GROQ_API_KEY == 'your_groq_api_key_here':
@@ -411,17 +506,21 @@ def main():
             print(f"   ✅ LaTeX saved: {filename_base}.tex")
             
             # Try to compile PDF
-            print("   🔄 Attempting PDF compilation...")
-            pdf_success = tailor.compile_pdf(f"{filename_base}.tex", output_dir)
-            
-            if pdf_success:
-                print(f"   ✅ PDF created: {filename_base}.pdf")
+            if skip_pdf:
+                print("   ⏭️  PDF compilation skipped (--skip-pdf)")
+                pdf_success = False
             else:
-                print(f"   ⚠️  PDF compilation skipped")
-                print(f"      To compile manually:")
-                print(f"      1. Go to overleaf.com")
-                print(f"      2. Upload: {tex_file}")
-                print(f"      3. Recompile")
+                print("   🔄 Attempting PDF compilation...")
+                pdf_success = tailor.compile_pdf(tex_file, output_dir, use_docker=use_docker)
+                
+                if pdf_success:
+                    print(f"   ✅ PDF created: {filename_base}.pdf")
+                else:
+                    print(f"   ⚠️  PDF compilation failed")
+                    print(f"      To compile manually:")
+                    print(f"      1. Install texlive: sudo pacman -S texlive-most")
+                    print(f"      2. Use Docker: docker run --rm -v $(pwd)/{output_dir}:/workdir texlive/texlive:latest pdflatex {filename_base}.tex")
+                    print(f"      3. Upload to Overleaf: https://www.overleaf.com")
             
             results.append({
                 'job': job,
