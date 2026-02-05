@@ -1,0 +1,50 @@
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Virtual Environment
+venv/
+env/
+ENV/
+
+# Output files
+output/
+*.pdf
+*.docx
+*.tex
+*.aux
+*.log
+*.out
+
+# Test data (keep examples only)
+*_parsed.json
+jobs_scraped*.json
+test*.json
+*.txt
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
