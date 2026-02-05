@@ -17,6 +17,7 @@ import sys
 import os
 import json
 import subprocess
+import re
 from pathlib import Path
 from typing import Dict, List, Any
 
@@ -204,21 +205,52 @@ IMPORTANT:
         # Fallback: use original data with job title
         return self._fallback_tailoring(original_data, job_data)
     
+    def _extract_contact_info(self, contact: Dict) -> Dict:
+        """Extract clean contact info from parsed data"""
+        name = contact.get('name', '')
+        phone = contact.get('phone', '')
+        email = contact.get('email', '')
+        linkedin = contact.get('linkedin', '')
+        portfolio = contact.get('portfolio', contact.get('github', ''))
+        
+        # Check if linkedin/portfolio fields contain combined contact info
+        combined_info = linkedin if len(linkedin) > 50 else portfolio
+        
+        if combined_info and '|' in combined_info:
+            # Parse combined contact line
+            parts = [p.strip() for p in combined_info.split('|')]
+            
+            for part in parts:
+                if '@' in part and not email:
+                    email = part
+                elif part.startswith('+') or part.replace('-', '').replace(' ', '').isdigit():
+                    if not phone:
+                        phone = part
+                elif 'linkedin' in part.lower():
+                    linkedin = part
+                elif 'github' in part.lower() or 'portfolio' in part.lower():
+                    portfolio = part
+        
+        return {
+            'name': name,
+            'phone': phone,
+            'email': email,
+            'linkedin': linkedin,
+            'portfolio': portfolio
+        }
+    
     def _fallback_tailoring(self, resume_data: Dict, job_data: Dict) -> Dict:
         """Fallback if LLM fails - use original with minor adjustments"""
         
         contact = resume_data.get('contact_info', {})
         sections = resume_data.get('sections', {})
         
+        # Extract clean contact info
+        clean_contact = self._extract_contact_info(contact)
+        
         # Build structured data from original
         structured = {
-            'heading': {
-                'name': contact.get('name', ''),
-                'phone': contact.get('phone', ''),
-                'email': contact.get('email', ''),
-                'linkedin': contact.get('linkedin', ''),
-                'portfolio': contact.get('portfolio', contact.get('github', ''))
-            },
+            'heading': clean_contact,
             'education': [],
             'experience': [],
             'projects': [],
@@ -243,22 +275,89 @@ IMPORTANT:
         # Parse experience (convert to bullets)
         exp_content = sections.get('experience', [])
         if exp_content:
-            exp_text = '\n'.join(exp_content)
+            # Try to extract company and title from first lines
+            company = 'Company'
+            title = 'Position'
+            dates = ''
+            
+            # First line often contains company/title info
+            if exp_content:
+                first_line = exp_content[0]
+                # Try to parse common formats
+                if ' at ' in first_line.lower():
+                    parts = first_line.split(' at ', 1)
+                    title = parts[0].strip()
+                    company = parts[1].strip()
+                elif ',' in first_line:
+                    parts = first_line.split(',', 1)
+                    title = parts[0].strip()
+                    company = parts[1].strip()
+                else:
+                    title = first_line.strip()
+            
+            # Get bullet points (skip first line if it was header)
+            content_start = 1 if len(exp_content) > 1 else 0
+            exp_text = '\n'.join(exp_content[content_start:])
             bullets = self._text_to_bullets(exp_text)
             
+            if not bullets and exp_content:
+                bullets = [exp_content[0]]
+            
             structured['experience'].append({
-                'company': 'Company',
+                'company': company,
                 'location': '',
-                'title': 'Position',
-                'dates': '',
+                'title': title,
+                'dates': dates,
                 'bullets': bullets[:5] if bullets else ['Experience description']
             })
         
-        # Parse skills
+        # Parse skills - try to categorize them
         skills_content = sections.get('skills', [])
         if skills_content:
             skills_text = ' '.join(skills_content)
-            structured['skills']['languages'] = skills_text
+            
+            # Remove common labels that might already be in the text
+            skills_text = skills_text.replace('Languages:', '').replace('Languages', '', 1)
+            skills_text = skills_text.replace('Skills:', '').replace('Skills', '', 1)
+            skills_text = skills_text.strip()
+            
+            # Simple categorization
+            languages = []
+            frameworks = []
+            tools = []
+            libraries = []
+            
+            # Common keywords for categorization
+            lang_keywords = ['Python', 'SQL', 'JavaScript', 'Java', 'R', 'C++', 'C#', 'Go', 'Ruby', 'PHP']
+            framework_keywords = ['React', 'Flask', 'FastAPI', 'Django', 'Node.js', 'Angular', 'Vue']
+            tool_keywords = ['Git', 'Docker', 'AWS', 'Azure', 'GCP', 'Kubernetes', 'Jenkins']
+            lib_keywords = ['pandas', 'NumPy', 'Matplotlib', 'scikit-learn', 'TensorFlow', 'PyTorch']
+            
+            # Split by common delimiters
+            all_skills = re.split(r'[,;/|•\-]', skills_text)
+            
+            for skill in all_skills:
+                skill = skill.strip()
+                if not skill:
+                    continue
+                
+                # Categorize
+                if any(kw in skill for kw in lang_keywords):
+                    languages.append(skill)
+                elif any(kw in skill for kw in framework_keywords):
+                    frameworks.append(skill)
+                elif any(kw in skill for kw in tool_keywords):
+                    tools.append(skill)
+                elif any(kw in skill for kw in lib_keywords):
+                    libraries.append(skill)
+                else:
+                    # Default to languages
+                    languages.append(skill)
+            
+            structured['skills']['languages'] = ', '.join(languages) if languages else skills_text
+            structured['skills']['frameworks'] = ', '.join(frameworks)
+            structured['skills']['developer_tools'] = ', '.join(tools)
+            structured['skills']['libraries'] = ', '.join(libraries)
         
         return structured
     
