@@ -47,4 +47,4 @@ test*.json
 Thumbs.db
 
 # Logs
-*.log
+*.log.env*
